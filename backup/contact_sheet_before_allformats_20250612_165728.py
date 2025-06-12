@@ -12,15 +12,17 @@ from core.image_processor import ImageProcessor
 class ContactSheet:
     """コンタクトシート生成クラス"""
     
-    # 基準サイズ (mm -> pixel at 300dpi)
-    BASE_WIDTH_MM = 210  # A4幅
+    # A4サイズ (mm -> pixel at 300dpi) - 基準サイズとして使用
+    A4_WIDTH_MM = 210
+    A4_HEIGHT_MM = 297
     DPI = 300
     
     # アスペクト比 4:5 (幅:高さ)
     ASPECT_RATIO = (4, 5)
     
     def __init__(self):
-        self.base_width = int(self.BASE_WIDTH_MM * self.DPI / 25.4)
+        self.a4_width = int(self.A4_WIDTH_MM * self.DPI / 25.4)
+        self.a4_height = int(self.A4_HEIGHT_MM * self.DPI / 25.4)
         self.margin = int(10 * self.DPI / 25.4)  # 10mm margin
         self.info_height = int(35 * self.DPI / 25.4)  # 35mm for info section
         self.image_info_gap = int(8 * self.DPI / 25.4)  # 8mm gap between images and info
@@ -29,12 +31,12 @@ class ContactSheet:
                     processed_images: List[Tuple[Image.Image, int]],
                     film_format: FilmFormat,
                     info: Dict[str, str]) -> Image.Image:
-        """コンタクトシートを作成（全フォーマット対応）"""
+        """コンタクトシートを作成（4:5アスペクト比）"""
         
         # 画像配置の計算
         layout_info = self._calculate_layout(processed_images, film_format)
         
-        # 最適サイズの計算
+        # 4:5アスペクト比でのサイズ計算
         sheet_width, sheet_height = self._calculate_optimal_size(layout_info)
         
         # 背景画像作成
@@ -51,30 +53,13 @@ class ContactSheet:
     
     def _calculate_layout(self, processed_images: List[Tuple[Image.Image, int]], 
                          film_format: FilmFormat) -> Dict:
-        """レイアウト情報を計算（フォーマット別最適化）"""
+        """レイアウト情報を計算"""
         images_per_row = film_format.images_per_row
         num_images = len(processed_images)
         
-        # フォーマットに応じた基準幅の調整
-        if images_per_row <= 3:  # 120mm系（6x6、6x7など）
-            # 大きい画像なので幅を広めに取る
-            base_width = self.base_width * 1.2
-        elif images_per_row >= 10:  # 35mm half など
-            # 小さい画像なので標準幅
-            base_width = self.base_width
-        else:  # 35mm full など
-            base_width = self.base_width
-        
-        # 利用可能幅
-        available_width = int(base_width) - (2 * self.margin)
-        
-        # サムネイル幅の計算（画像間の余白を考慮）
-        image_gaps = max(0, images_per_row - 1) * 10  # 画像間の余白
-        thumb_width = (available_width - image_gaps) // images_per_row
-        
-        # 最小サムネイルサイズの保証
-        min_thumb_size = int(30 * self.DPI / 25.4)  # 30mm minimum
-        thumb_width = max(thumb_width, min_thumb_size)
+        # A4幅を基準にサムネイルサイズを計算
+        available_width = self.a4_width - (2 * self.margin)
+        thumb_width = available_width // images_per_row - 10  # 画像間の余白
         
         # アスペクト比に基づいて高さを計算
         aspect_w, aspect_h = film_format.aspect_ratio
@@ -93,8 +78,7 @@ class ContactSheet:
             'rows_needed': rows_needed,
             'images_per_row': images_per_row,
             'content_width': content_width,
-            'content_height': content_height,
-            'base_width': int(base_width)
+            'content_height': content_height
         }
     
     def _calculate_optimal_size(self, layout_info: Dict) -> Tuple[int, int]:
@@ -105,34 +89,35 @@ class ContactSheet:
                      self.image_info_gap +        # 画像と情報の間隔
                      self.info_height)            # 情報エリア
         
-        # 必要な最小幅（コンテンツに基づく）
+        # 必要な最小幅
         min_width = layout_info['content_width'] + 2 * self.margin
         
-        # 4:5のアスペクト比を維持しつつ、コンテンツが収まるサイズを計算
-        # 1. 最小幅から4:5比率の高さを計算
+        # 4:5のアスペクト比を維持
+        # 幅から高さを決める場合
         height_from_width = int(min_width * self.ASPECT_RATIO[1] / self.ASPECT_RATIO[0])
-        
-        # 2. 最小高さから4:5比率の幅を計算
+        # 高さから幅を決める場合  
         width_from_height = int(min_height * self.ASPECT_RATIO[0] / self.ASPECT_RATIO[1])
         
-        # より大きい方を採用（コンテンツが確実に収まるように）
-        if height_from_width >= min_height and min_width <= width_from_height:
-            # 幅ベースで決定
-            final_width = max(min_width, width_from_height)
-            final_height = int(final_width * self.ASPECT_RATIO[1] / self.ASPECT_RATIO[0])
-        else:
-            # 高さベースで決定
-            final_height = max(min_height, height_from_width)
-            final_width = int(final_height * self.ASPECT_RATIO[0] / self.ASPECT_RATIO[1])
-        
-        # 最終確認：コンテンツが収まるかチェック
-        if final_height < min_height:
-            final_height = min_height
-            final_width = int(final_height * self.ASPECT_RATIO[0] / self.ASPECT_RATIO[1])
-        
-        if final_width < min_width:
+        # より大きい方を採用（コンテンツが収まるように）
+        if height_from_width >= min_height:
+            # 幅ベースのサイズが適している
             final_width = min_width
-            final_height = int(final_width * self.ASPECT_RATIO[1] / self.ASPECT_RATIO[0])
+            final_height = height_from_width
+        else:
+            # 高さベースのサイズが必要
+            final_width = width_from_height
+            final_height = min_height
+        
+        # A4サイズを超えないように制限
+        if final_width > self.a4_width or final_height > self.a4_height:
+            # A4サイズを4:5に調整
+            a4_height_for_ratio = int(self.a4_width * self.ASPECT_RATIO[1] / self.ASPECT_RATIO[0])
+            if a4_height_for_ratio <= self.a4_height:
+                final_width = self.a4_width
+                final_height = a4_height_for_ratio
+            else:
+                final_height = self.a4_height
+                final_width = int(self.a4_height * self.ASPECT_RATIO[0] / self.ASPECT_RATIO[1])
         
         return final_width, final_height
     
@@ -183,10 +168,10 @@ class ContactSheet:
             font_bold = font
         
         # 情報エリアの開始位置（下部から逆算）
-        info_area_start = sheet_height - self.margin - self.info_height
+        info_y = sheet_height - self.margin - self.info_height
         
-        # 区切り線の位置
-        line_y = info_area_start
+        # 区切り線（情報エリアの上端に描画）
+        line_y = info_y
         draw.line([(self.margin, line_y), 
                   (sheet_width - self.margin, line_y)], 
                  fill='black', width=2)
@@ -229,11 +214,9 @@ class ContactSheet:
             # フィルム名の位置を他の情報から少し離す
             film_y = y_offset + max(len(left_items), len(right_items)) * line_height + int(8 * self.DPI / 72)
             
-            # 情報エリア内に収まるかチェック
-            if film_y + int(20 * self.DPI / 72) <= sheet_height - self.margin:
-                draw.text(((sheet_width - text_width) // 2, film_y), 
-                         film_text, 
-                         font=font_bold, fill='black')
+            draw.text(((sheet_width - text_width) // 2, film_y), 
+                     film_text, 
+                     font=font_bold, fill='black')
     
     def save_as_jpeg(self, sheet: Image.Image, output_path: str, quality: int = 95) -> None:
         """JPEG形式で保存"""

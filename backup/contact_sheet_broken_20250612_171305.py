@@ -23,13 +23,14 @@ class ContactSheet:
         self.base_width = int(self.BASE_WIDTH_MM * self.DPI / 25.4)
         self.margin = int(10 * self.DPI / 25.4)  # 10mm margin
         self.info_height = int(35 * self.DPI / 25.4)  # 35mm for info section
-        self.image_info_gap = int(8 * self.DPI / 25.4)  # 8mm gap between images and info
+        # 統一された余白サイズ
+        self.unified_gap = int(6 * self.DPI / 25.4)  # 6mm unified gap
         
     def create_sheet(self, 
                     processed_images: List[Tuple[Image.Image, int]],
                     film_format: FilmFormat,
                     info: Dict[str, str]) -> Image.Image:
-        """コンタクトシートを作成（全フォーマット対応）"""
+        """コンタクトシートを作成（バランス改善版）"""
         
         # 画像配置の計算
         layout_info = self._calculate_layout(processed_images, film_format)
@@ -99,10 +100,12 @@ class ContactSheet:
     
     def _calculate_optimal_size(self, layout_info: Dict) -> Tuple[int, int]:
         """4:5アスペクト比を維持した最適サイズを計算"""
-        # 必要な最小高さ
+        # 必要な最小高さ（統一された余白を使用）
         min_height = (2 * self.margin +           # 上下マージン
                      layout_info['content_height'] +  # 画像エリア
-                     self.image_info_gap +        # 画像と情報の間隔
+                     self.unified_gap +           # 画像と線の間の余白
+                     2 +                          # 線の幅
+                     self.unified_gap +           # 線と情報テキストの間の余白
                      self.info_height)            # 情報エリア
         
         # 必要な最小幅（コンテンツに基づく）
@@ -171,7 +174,7 @@ class ContactSheet:
     
     def _add_info_section(self, sheet: Image.Image, draw: ImageDraw.Draw, 
                          info: Dict[str, str], sheet_width: int, sheet_height: int) -> None:
-        """情報セクションを追加（適切な余白付き）"""
+        """情報セクションを追加（中央揃え・統一余白）"""
         # フォント設定
         try:
             font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 
@@ -185,17 +188,17 @@ class ContactSheet:
         # 情報エリアの開始位置（下部から逆算）
         info_area_start = sheet_height - self.margin - self.info_height
         
-        # 区切り線の位置
+        # 区切り線の位置（画像エリアから統一余白分下）
         line_y = info_area_start
         draw.line([(self.margin, line_y), 
                   (sheet_width - self.margin, line_y)], 
                  fill='black', width=2)
         
-        # 情報を描画（線から適切な余白を空けて）
-        y_offset = line_y + 15  # 線から15ピクセル下
+        # 情報を描画（線から統一余白を空けて）
+        y_offset = line_y + self.unified_gap  # 線から統一余白分下
         line_height = int(18 * self.DPI / 72)  # 行間
         
-        # 左側の情報
+        # 情報項目を準備
         left_items = []
         if info.get('date'):
             left_items.append(f"Date: {info['date']}")
@@ -204,30 +207,46 @@ class ContactSheet:
         if info.get('developer'):
             left_items.append(f"Developer: {info['developer']}")
         
-        for i, item in enumerate(left_items):
-            draw.text((self.margin, y_offset + i * line_height), 
-                     item, font=font, fill='black')
-        
-        # 右側の情報
-        right_x = sheet_width // 2
         right_items = []
         if info.get('camera'):
             right_items.append(f"Camera: {info['camera']}")
         if info.get('lens'):
             right_items.append(f"Lens: {info['lens']}")
         
-        for i, item in enumerate(right_items):
-            draw.text((right_x, y_offset + i * line_height), 
+        # 情報エリア全体の幅を計算（中央揃え用）
+        info_content_width = sheet_width - 2 * self.margin
+        
+        # 左右の情報を中央揃えで配置
+        # 左側情報の幅
+        left_area_width = info_content_width // 2
+        
+        # 左側の情報（左半分の中央揃え）
+        for i, item in enumerate(left_items):
+            bbox = draw.textbbox((0, 0), item, font=font)
+            text_width = bbox[2] - bbox[0]
+            # 左半分エリアの中央に配置
+            x = self.margin + (left_area_width - text_width) // 2
+            draw.text((x, y_offset + i * line_height), 
                      item, font=font, fill='black')
         
-        # フィルム名（中央下、他の情報から間隔を空ける）
+        # 右側の情報（右半分の中央揃え）
+        right_area_start = self.margin + left_area_width
+        for i, item in enumerate(right_items):
+            bbox = draw.textbbox((0, 0), item, font=font)
+            text_width = bbox[2] - bbox[0]
+            # 右半分エリアの中央に配置
+            x = right_area_start + (left_area_width - text_width) // 2
+            draw.text((x, y_offset + i * line_height), 
+                     item, font=font, fill='black')
+        
+        # フィルム名（全体の中央、統一余白を空けて）
         if info.get('film'):
             film_text = f"Film: {info['film']}"
             bbox = draw.textbbox((0, 0), film_text, font=font_bold)
             text_width = bbox[2] - bbox[0]
             
-            # フィルム名の位置を他の情報から少し離す
-            film_y = y_offset + max(len(left_items), len(right_items)) * line_height + int(8 * self.DPI / 72)
+            # フィルム名の位置（他の情報から統一余白を空ける）
+            film_y = y_offset + max(len(left_items), len(right_items)) * line_height + self.unified_gap
             
             # 情報エリア内に収まるかチェック
             if film_y + int(20 * self.DPI / 72) <= sheet_height - self.margin:

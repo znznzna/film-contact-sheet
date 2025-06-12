@@ -1,4 +1,28 @@
-from PIL import Image, ImageDraw, ImageFont
+#!/usr/bin/env python3
+"""
+前回バージョン復元スクリプト
+正常に動作していた前回のバージョンに復元します
+"""
+
+import shutil
+from pathlib import Path
+
+def restore_contact_sheet():
+    """contact_sheet.pyを前回の正常動作バージョンに復元"""
+    
+    # バックアップ作成
+    backup_dir = Path("backup")
+    backup_dir.mkdir(exist_ok=True)
+    
+    contact_sheet_path = Path("core/contact_sheet.py")
+    if contact_sheet_path.exists():
+        timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"contact_sheet_broken_{timestamp}.py"
+        shutil.copy2(contact_sheet_path, backup_dir / backup_name)
+        print(f"現在の破損ファイルをバックアップ: {backup_name}")
+    
+    # 前回の正常動作バージョン
+    content = '''from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -275,3 +299,35 @@ class ContactSheet:
             c.showPage()
         
         c.save()
+'''
+    
+    # ファイルに書き込み
+    with open("core/contact_sheet.py", "w", encoding="utf-8") as f:
+        f.write(content)
+    print("core/contact_sheet.py を前回の正常動作バージョンに復元しました")
+
+def main():
+    """メイン関数"""
+    print("=== 前回バージョン復元スクリプト ===")
+    print("正常に動作していた前回のバージョンに復元します")
+    print()
+    
+    restore_contact_sheet()
+    
+    print()
+    print("=== 復元完了 ===")
+    print()
+    print("復元内容:")
+    print("✓ 情報エリアが正常に表示される前回のバージョンに復元")
+    print("✓ 4:5アスペクト比を維持")
+    print("✓ 全フォーマット対応")
+    print("✓ 適切な余白とレイアウト")
+    print("✓ 画像一覧と情報エリアの間に適切な間隔")
+    print()
+    print("破損したファイルはbackupフォルダに保存されました")
+    print()
+    print("アプリケーションを再起動して確認してください：")
+    print("python main.py")
+
+if __name__ == "__main__":
+    main()
