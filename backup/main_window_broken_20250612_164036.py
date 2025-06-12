@@ -1,3 +1,24 @@
+    
+    def _collect_files_from_path(self, path: str) -> List[str]:
+        """パスから画像ファイルを収集（ディレクトリの場合は中身も含む）"""
+        path_obj = Path(path)
+        files = []
+        
+        if path_obj.is_file() and self._is_image_file(path):
+            files.append(path)
+        elif path_obj.is_dir():
+            # ディレクトリの場合、中身の画像ファイルを再帰的に検索
+            image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
+            for file_path in path_obj.rglob('*'):
+                if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                    files.append(str(file_path))
+        
+        return files
+    
+    def _is_image_file(self, file_path: str) -> bool:
+        """画像ファイルかどうかチェック"""
+        image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
+        return Path(file_path).suffix.lower() in image_extensions
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QLineEdit, QPushButton, QComboBox,
                             QListWidget, QGroupBox, QFileDialog, QMessageBox,
@@ -45,39 +66,18 @@ class DropAreaWidget(QListWidget):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
     
+        
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
     
-    def dropEvent(self, event: QDropEvent):
+def dropEvent(self, event: QDropEvent):
         files = []
         for url in event.mimeData().urls():
             if url.isLocalFile():
-                file_path = url.toLocalFile()
-                files.extend(self._collect_files_from_path(file_path))
+                files.append(url.toLocalFile())
         if files:
             self.files_dropped.emit(files)
-    
-    def _collect_files_from_path(self, path: str) -> List[str]:
-        """パスから画像ファイルを収集（ディレクトリの場合は中身も含む）"""
-        path_obj = Path(path)
-        files = []
-        
-        if path_obj.is_file() and self._is_image_file(path):
-            files.append(path)
-        elif path_obj.is_dir():
-            # ディレクトリの場合、中身の画像ファイルを再帰的に検索
-            image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
-            for file_path in path_obj.rglob('*'):
-                if file_path.is_file() and file_path.suffix.lower() in image_extensions:
-                    files.append(str(file_path))
-        
-        return files
-    
-    def _is_image_file(self, file_path: str) -> bool:
-        """画像ファイルかどうかチェック"""
-        image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
-        return Path(file_path).suffix.lower() in image_extensions
 
 
 class InfoFieldWidget(QWidget):
@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
         
         # ボタン
         button_layout = QHBoxLayout()
-        self.add_button = QPushButton("Add Images/Folders")
+        self.add_button = QPushButton("Add Images")
         self.add_button.clicked.connect(self.add_images)
         self.clear_button = QPushButton("Clear All")
         self.clear_button.clicked.connect(self.clear_images)
@@ -214,8 +214,8 @@ class MainWindow(QMainWindow):
             'location': InfoFieldWidget("Location", "Tokyo, Japan"),
             'camera': InfoFieldWidget("Camera", "Nikon F3"),
             'lens': InfoFieldWidget("Lens", "50mm f/1.4"),
-            'film': InfoFieldWidget("Film", "Kodak Portra 400"),
-            'developer': InfoFieldWidget("Developer", "Carmencita Film Lab")
+            'film': InfoFieldWidget("Film", "Kodak Portra 400")
+                        'developer': InfoFieldWidget("Developer", "Carmencita Film Lab"),
         }
         
         for field in self.info_fields.values():
@@ -306,24 +306,14 @@ class MainWindow(QMainWindow):
         return panel
     
     def add_images(self):
-        """画像やフォルダを追加"""
-        # ファイルとディレクトリ両方を選択可能なダイアログ
+        """画像を追加"""
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Images",
             "",
-            "Image Files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp);;All Files (*)"
+            "Image Files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp)"
         )
-        
-        # ディレクトリ選択も可能にする
-        if not files:
-            folder = QFileDialog.getExistingDirectory(
-                self,
-                "Select Folder with Images"
-            )
-            if folder:
-                self.handle_dropped_files([folder])
-        else:
+        if files:
             self.handle_dropped_files(files)
     
     def handle_dropped_files(self, files: List[str]):
@@ -333,37 +323,20 @@ class MainWindow(QMainWindow):
         for i in range(self.image_list.count()):
             existing_files.append(self.image_list.item(i).data(Qt.ItemDataRole.UserRole))
         
-        # 新しいファイルを収集（ディレクトリの場合は中身も含む）
+        # 新しいファイルを追加
         new_files = []
-        for file_path in files:
-            path_obj = Path(file_path)
-            if path_obj.is_file() and self._is_image_file(file_path):
-                if file_path not in existing_files:
-                    new_files.append(file_path)
-            elif path_obj.is_dir():
-                # ディレクトリの場合、中身の画像ファイルを再帰的に検索
-                image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
-                for img_file in path_obj.rglob('*'):
-                    if img_file.is_file() and img_file.suffix.lower() in image_extensions:
-                        img_path = str(img_file)
-                        if img_path not in existing_files and img_path not in new_files:
-                            new_files.append(img_path)
+        for file in files:
+            if file not in existing_files:
+                new_files.append(file)
         
-        if new_files:
-            # 画像ファイルを読み込み
-            all_files = existing_files + new_files
-            self.image_processor.load_images(all_files)
-            
-            # リストを更新
-            self.update_image_list()
-            
-            # 変更フラグを立てる
-            self.mark_images_changed()
-    
-    def _is_image_file(self, file_path: str) -> bool:
-        """画像ファイルかどうかチェック"""
-        image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
-        return Path(file_path).suffix.lower() in image_extensions
+        # 画像ファイルのみをフィルタリング
+        self.image_processor.load_images(existing_files + new_files)
+        
+        # リストを更新
+        self.update_image_list()
+        
+        # 変更フラグを立てる
+        self.mark_images_changed()
     
     def update_image_list(self):
         """画像リストを更新"""
@@ -480,7 +453,7 @@ class MainWindow(QMainWindow):
                 'location': self.info_fields['location'].get_value(),
                 'camera': self.info_fields['camera'].get_value(),
                 'lens': self.info_fields['lens'].get_value(),
-                'film': self.info_fields['film'].get_value(),
+                'film': self.info_fields['film'].get_value()
                 'developer': self.info_fields['developer'].get_value()
             }
             

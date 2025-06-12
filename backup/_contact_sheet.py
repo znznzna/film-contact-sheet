@@ -128,7 +128,7 @@ class ContactSheet:
             draw.text((right_x, y_offset + i * line_height), 
                      item, font=font, fill='black')
         
-                    # フィルム名（中央下、他の情報から間隔を空ける）
+        # フィルム名（中央下、他の情報から間隔を空ける）
         if info.get('film'):
             film_text = f"Film: {info['film']}"
             bbox = draw.textbbox((0, 0), film_text, font=font_bold)

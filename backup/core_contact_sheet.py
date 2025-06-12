@@ -21,7 +21,7 @@ class ContactSheet:
         self.width = int(self.A4_WIDTH_MM * self.DPI / 25.4)
         self.height = int(self.A4_HEIGHT_MM * self.DPI / 25.4)
         self.margin = int(10 * self.DPI / 25.4)  # 10mm margin
-        self.info_height = int(35 * self.DPI / 25.4)  # 35mm for info section (increased)
+        self.info_height = int(30 * self.DPI / 25.4)  # 30mm for info section
         
     def create_sheet(self, 
                     processed_images: List[Tuple[Image.Image, int]],
@@ -80,7 +80,7 @@ class ContactSheet:
     
     def _add_info_section(self, sheet: Image.Image, draw: ImageDraw.Draw, 
                          info: Dict[str, str]) -> None:
-        """情報セクションを追加（レイアウト改善）"""
+        """情報セクションを追加"""
         # フォント設定
         try:
             font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 
@@ -100,44 +100,41 @@ class ContactSheet:
                  fill='black', width=2)
         
         # 情報を描画
-        y_offset = info_y + 15  # 上部余白を増加
-        line_height = int(18 * self.DPI / 72)  # 行間を調整
+        y_offset = info_y + 10
+        line_height = int(20 * self.DPI / 72)
         
         # 左側の情報
-        left_items = []
         if info.get('date'):
-            left_items.append(f"Date: {info['date']}")
-        if info.get('location'):
-            left_items.append(f"Location: {info['location']}")
-        if info.get('developer'):
-            left_items.append(f"Developer: {info['developer']}")
+            draw.text((self.margin, y_offset), 
+                     f"Date: {info['date']}", 
+                     font=font, fill='black')
         
-        for i, item in enumerate(left_items):
-            draw.text((self.margin, y_offset + i * line_height), 
-                     item, font=font, fill='black')
+        if info.get('location'):
+            draw.text((self.margin, y_offset + line_height), 
+                     f"Location: {info['location']}", 
+                     font=font, fill='black')
         
         # 右側の情報
         right_x = self.width // 2
-        right_items = []
+        
         if info.get('camera'):
-            right_items.append(f"Camera: {info['camera']}")
+            draw.text((right_x, y_offset), 
+                     f"Camera: {info['camera']}", 
+                     font=font, fill='black')
+        
         if info.get('lens'):
-            right_items.append(f"Lens: {info['lens']}")
+            draw.text((right_x, y_offset + line_height), 
+                     f"Lens: {info['lens']}", 
+                     font=font, fill='black')
         
-        for i, item in enumerate(right_items):
-            draw.text((right_x, y_offset + i * line_height), 
-                     item, font=font, fill='black')
-        
-                    # フィルム名（中央下、他の情報から間隔を空ける）
+        # フィルム名（中央下）
         if info.get('film'):
             film_text = f"Film: {info['film']}"
             bbox = draw.textbbox((0, 0), film_text, font=font_bold)
             text_width = bbox[2] - bbox[0]
             
-            # フィルム名の位置を他の情報から少し離す
-            film_y = y_offset + max(len(left_items), len(right_items)) * line_height + int(8 * self.DPI / 72)
-            
-            draw.text(((self.width - text_width) // 2, film_y), 
+            draw.text(((self.width - text_width) // 2, 
+                      y_offset + line_height * 2), 
                      film_text, 
                      font=font_bold, fill='black')
     

@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
         # ファイルとディレクトリ両方を選択可能なダイアログ
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Images",
+            "Select Images or Folders",
             "",
             "Image Files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp);;All Files (*)"
         )

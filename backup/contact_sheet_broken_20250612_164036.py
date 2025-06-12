@@ -21,7 +21,7 @@ class ContactSheet:
         self.width = int(self.A4_WIDTH_MM * self.DPI / 25.4)
         self.height = int(self.A4_HEIGHT_MM * self.DPI / 25.4)
         self.margin = int(10 * self.DPI / 25.4)  # 10mm margin
-        self.info_height = int(35 * self.DPI / 25.4)  # 35mm for info section (increased)
+        self.info_height = int(35 * self.DPI / 25.4)  # 30mm for info section
         
     def create_sheet(self, 
                     processed_images: List[Tuple[Image.Image, int]],
@@ -78,7 +78,7 @@ class ContactSheet:
         
         return sheet
     
-    def _add_info_section(self, sheet: Image.Image, draw: ImageDraw.Draw, 
+        def _add_info_section(self, sheet: Image.Image, draw: ImageDraw.Draw, 
                          info: Dict[str, str]) -> None:
         """情報セクションを追加（レイアウト改善）"""
         # フォント設定
@@ -128,7 +128,7 @@ class ContactSheet:
             draw.text((right_x, y_offset + i * line_height), 
                      item, font=font, fill='black')
         
-                    # フィルム名（中央下、他の情報から間隔を空ける）
+        # フィルム名（中央下、他の情報から間隔を空ける）
         if info.get('film'):
             film_text = f"Film: {info['film']}"
             bbox = draw.textbbox((0, 0), film_text, font=font_bold)
@@ -140,7 +140,7 @@ class ContactSheet:
             draw.text(((self.width - text_width) // 2, film_y), 
                      film_text, 
                      font=font_bold, fill='black')
-    
+
     def save_as_jpeg(self, sheet: Image.Image, output_path: str, quality: int = 95) -> None:
         """JPEG形式で保存"""
         sheet.save(output_path, 'JPEG', quality=quality, dpi=(self.DPI, self.DPI))
