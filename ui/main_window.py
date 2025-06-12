@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt6.QtGui import QPixmap, QImage, QDragEnterEvent, QDropEvent
 from pathlib import Path
 from typing import List, Dict, Optional
+from PIL import Image
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -40,6 +41,242 @@ class DropAreaWidget(QListWidget):
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 files.append(url.toLocalFile())
+        if files:
+            self.files_dropped.emit(files)
+
+
+class InfoFieldWidget(QWidget):
+    """情報入力フィールドウィジェット"""
+    
+    value_changed = pyqtSignal()
+    
+    def __init__(self, label: str, placeholder: str = ""):
+        super().__init__()
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.label = QLabel(f"{label}:")
+        self.label.setFixedWidth(80)
+        self.input = QLineEdit()
+        self.input.setPlaceholderText(placeholder)
+        self.input.textChanged.connect(self.value_changed.emit)
+        
+        # 初期状態
+        self._original_style = self.input.styleSheet()
+        self._has_unsaved_changes = False
+        
+        layout.addWidget(self.label)
+        layout.addWidget(self.input)
+        self.setLayout(layout)
+    
+    def mark_as_changed(self):
+        """変更があったことを視覚的に示す"""
+        self._has_unsaved_changes = True
+        self.input.setStyleSheet("""
+            QLineEdit {
+                border: 2px solid #ff8c00;
+                border-radius: 3px;
+                padding: 2px;
+            }
+        """)
+    
+    def mark_as_saved(self):
+        """保存済みの状態に戻す"""
+        self._has_unsaved_changes = False
+        self.input.setStyleSheet(self._original_style)
+    
+    def get_value(self) -> str:
+        return self.input.text()
+    
+    def has_unsaved_changes(self) -> bool:
+        return self._has_unsaved_changes
+
+
+class MainWindow(QMainWindow):
+    """メインウィンドウ"""
+    
+    def __init__(self):
+        super().__init__()
+        self.image_processor = ImageProcessor()
+        self.contact_sheet = ContactSheet()
+        self.current_sheet = None
+        self.has_unsaved_changes = False
+        
+        self.init_ui()
+        
+    def init_ui(self):
+        """UIを初期化"""
+        self.setWindowTitle("Film Contact Sheet Generator")
+        self.setGeometry(100, 100, 1200, 800)
+        
+        # メインウィジェット
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        
+        # メインレイアウト（水平分割）
+        main_layout = QHBoxLayout()
+        main_widget.setLayout(main_layout)
+        
+        # 左側パネル
+        left_panel = self.create_left_panel()
+        
+        # 右側パネル（プレビュー）
+        right_panel = self.create_right_panel()
+        
+        # スプリッター
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([400, 800])
+        
+        main_layout.addWidget(splitter)
+    
+    def create_left_panel(self) -> QWidget:
+        """左側パネルを作成"""
+        panel = QWidget()
+        layout = QVBoxLayout()
+        panel.setLayout(layout)
+        
+        # フィルムフォーマット選択
+        format_group = QGroupBox("Film Format")
+        format_layout = QVBoxLayout()
+        self.format_combo = QComboBox()
+        for film_type in FilmType:
+            self.format_combo.addItem(film_type.value, film_type)
+        self.format_combo.currentIndexChanged.connect(self.on_format_changed)
+        format_layout.addWidget(self.format_combo)
+        format_group.setLayout(format_layout)
+        layout.addWidget(format_group)
+        
+        # 画像リスト
+        image_group = QGroupBox("Images")
+        image_layout = QVBoxLayout()
+        
+        # ボタン
+        button_layout = QHBoxLayout()
+        self.add_button = QPushButton("Add Images")
+        self.add_button.clicked.connect(self.add_images)
+        self.clear_button = QPushButton("Clear All")
+        self.clear_button.clicked.connect(self.clear_images)
+        button_layout.addWidget(self.add_button)
+        button_layout.addWidget(self.clear_button)
+        image_layout.addLayout(button_layout)
+        
+        # ドロップエリア
+        self.image_list = DropAreaWidget()
+        self.image_list.files_dropped.connect(self.handle_dropped_files)
+        image_layout.addWidget(self.image_list)
+        
+        image_group.setLayout(image_layout)
+        layout.addWidget(image_group)
+        
+        # 情報入力
+        info_group = QGroupBox("Information")
+        info_layout = QVBoxLayout()
+        
+        self.info_fields = {
+            'date': InfoFieldWidget("Date", "YYYY-MM-DD"),
+            'location': InfoFieldWidget("Location", "Tokyo, Japan"),
+            'camera': InfoFieldWidget("Camera", "Nikon F3"),
+            'lens': InfoFieldWidget("Lens", "50mm f/1.4"),
+            'film': InfoFieldWidget("Film", "Kodak Portra 400")
+        }
+        
+        for field in self.info_fields.values():
+            field.value_changed.connect(self.on_info_changed)
+            info_layout.addWidget(field)
+        
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
+        
+        # アクションボタン
+        action_layout = QHBoxLayout()
+        self.update_button = QPushButton("Update Preview")
+        self.update_button.clicked.connect(self.update_preview)
+        self.update_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        
+        action_layout.addWidget(self.update_button)
+        layout.addLayout(action_layout)
+        
+        # 出力設定
+        export_group = QGroupBox("Export")
+        export_layout = QVBoxLayout()
+        
+        # フォーマット選択
+        format_layout = QHBoxLayout()
+        format_layout.addWidget(QLabel("Format:"))
+        self.export_format = QComboBox()
+        self.export_format.addItems(["JPEG", "PNG", "PDF"])
+        format_layout.addWidget(self.export_format)
+        export_layout.addLayout(format_layout)
+        
+        # エクスポートボタン
+        self.export_button = QPushButton("Export Contact Sheet")
+        self.export_button.clicked.connect(self.export_sheet)
+        self.export_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        export_layout.addWidget(self.export_button)
+        
+        export_group.setLayout(export_layout)
+        layout.addWidget(export_group)
+        
+        layout.addStretch()
+        
+        return panel
+    
+    def create_right_panel(self) -> QWidget:
+        """右側パネル（プレビュー）を作成"""
+        panel = QWidget()
+        layout = QVBoxLayout()
+        panel.setLayout(layout)
+        
+        # プレビューラベル
+        preview_label = QLabel("Preview")
+        preview_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        layout.addWidget(preview_label)
+        
+        # プレビューエリア
+        scroll_area = QScrollArea()
+        self.preview_label = QLabel()
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setStyleSheet("background-color: #f0f0f0;")
+        self.preview_label.setText("No preview available.\nAdd images and click 'Update Preview'.")
+        
+        scroll_area.setWidget(self.preview_label)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+        
+        return panel
+    
+    def add_images(self):
+        """画像を追加"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Images",
+            "",
+            "Image Files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp)"
+        )
         if files:
             self.handle_dropped_files(files)
     
@@ -284,240 +521,4 @@ class DropAreaWidget(QListWidget):
                 event.ignore()
                 return
         
-        event.accept():
-            self.files_dropped.emit(files)
-
-
-class InfoFieldWidget(QWidget):
-    """情報入力フィールドウィジェット"""
-    
-    value_changed = pyqtSignal()
-    
-    def __init__(self, label: str, placeholder: str = ""):
-        super().__init__()
-        layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.label = QLabel(f"{label}:")
-        self.label.setFixedWidth(80)
-        self.input = QLineEdit()
-        self.input.setPlaceholderText(placeholder)
-        self.input.textChanged.connect(self.value_changed.emit)
-        
-        # 初期状態
-        self._original_style = self.input.styleSheet()
-        self._has_unsaved_changes = False
-        
-        layout.addWidget(self.label)
-        layout.addWidget(self.input)
-        self.setLayout(layout)
-    
-    def mark_as_changed(self):
-        """変更があったことを視覚的に示す"""
-        self._has_unsaved_changes = True
-        self.input.setStyleSheet("""
-            QLineEdit {
-                border: 2px solid #ff8c00;
-                border-radius: 3px;
-                padding: 2px;
-            }
-        """)
-    
-    def mark_as_saved(self):
-        """保存済みの状態に戻す"""
-        self._has_unsaved_changes = False
-        self.input.setStyleSheet(self._original_style)
-    
-    def get_value(self) -> str:
-        return self.input.text()
-    
-    def has_unsaved_changes(self) -> bool:
-        return self._has_unsaved_changes
-
-
-class MainWindow(QMainWindow):
-    """メインウィンドウ"""
-    
-    def __init__(self):
-        super().__init__()
-        self.image_processor = ImageProcessor()
-        self.contact_sheet = ContactSheet()
-        self.current_sheet = None
-        self.has_unsaved_changes = False
-        
-        self.init_ui()
-        
-    def init_ui(self):
-        """UIを初期化"""
-        self.setWindowTitle("Film Contact Sheet Generator")
-        self.setGeometry(100, 100, 1200, 800)
-        
-        # メインウィジェット
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        
-        # メインレイアウト（水平分割）
-        main_layout = QHBoxLayout()
-        main_widget.setLayout(main_layout)
-        
-        # 左側パネル
-        left_panel = self.create_left_panel()
-        
-        # 右側パネル（プレビュー）
-        right_panel = self.create_right_panel()
-        
-        # スプリッター
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
-        splitter.setSizes([400, 800])
-        
-        main_layout.addWidget(splitter)
-    
-    def create_left_panel(self) -> QWidget:
-        """左側パネルを作成"""
-        panel = QWidget()
-        layout = QVBoxLayout()
-        panel.setLayout(layout)
-        
-        # フィルムフォーマット選択
-        format_group = QGroupBox("Film Format")
-        format_layout = QVBoxLayout()
-        self.format_combo = QComboBox()
-        for film_type in FilmType:
-            self.format_combo.addItem(film_type.value, film_type)
-        self.format_combo.currentIndexChanged.connect(self.on_format_changed)
-        format_layout.addWidget(self.format_combo)
-        format_group.setLayout(format_layout)
-        layout.addWidget(format_group)
-        
-        # 画像リスト
-        image_group = QGroupBox("Images")
-        image_layout = QVBoxLayout()
-        
-        # ボタン
-        button_layout = QHBoxLayout()
-        self.add_button = QPushButton("Add Images")
-        self.add_button.clicked.connect(self.add_images)
-        self.clear_button = QPushButton("Clear All")
-        self.clear_button.clicked.connect(self.clear_images)
-        button_layout.addWidget(self.add_button)
-        button_layout.addWidget(self.clear_button)
-        image_layout.addLayout(button_layout)
-        
-        # ドロップエリア
-        self.image_list = DropAreaWidget()
-        self.image_list.files_dropped.connect(self.handle_dropped_files)
-        image_layout.addWidget(self.image_list)
-        
-        image_group.setLayout(image_layout)
-        layout.addWidget(image_group)
-        
-        # 情報入力
-        info_group = QGroupBox("Information")
-        info_layout = QVBoxLayout()
-        
-        self.info_fields = {
-            'date': InfoFieldWidget("Date", "YYYY-MM-DD"),
-            'location': InfoFieldWidget("Location", "Tokyo, Japan"),
-            'camera': InfoFieldWidget("Camera", "Nikon F3"),
-            'lens': InfoFieldWidget("Lens", "50mm f/1.4"),
-            'film': InfoFieldWidget("Film", "Kodak Portra 400")
-        }
-        
-        for field in self.info_fields.values():
-            field.value_changed.connect(self.on_info_changed)
-            info_layout.addWidget(field)
-        
-        info_group.setLayout(info_layout)
-        layout.addWidget(info_group)
-        
-        # アクションボタン
-        action_layout = QHBoxLayout()
-        self.update_button = QPushButton("Update Preview")
-        self.update_button.clicked.connect(self.update_preview)
-        self.update_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                font-weight: bold;
-                padding: 8px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """)
-        
-        action_layout.addWidget(self.update_button)
-        layout.addLayout(action_layout)
-        
-        # 出力設定
-        export_group = QGroupBox("Export")
-        export_layout = QVBoxLayout()
-        
-        # フォーマット選択
-        format_layout = QHBoxLayout()
-        format_layout.addWidget(QLabel("Format:"))
-        self.export_format = QComboBox()
-        self.export_format.addItems(["JPEG", "PNG", "PDF"])
-        format_layout.addWidget(self.export_format)
-        export_layout.addLayout(format_layout)
-        
-        # エクスポートボタン
-        self.export_button = QPushButton("Export Contact Sheet")
-        self.export_button.clicked.connect(self.export_sheet)
-        self.export_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                font-weight: bold;
-                padding: 10px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
-        export_layout.addWidget(self.export_button)
-        
-        export_group.setLayout(export_layout)
-        layout.addWidget(export_group)
-        
-        layout.addStretch()
-        
-        return panel
-    
-    def create_right_panel(self) -> QWidget:
-        """右側パネル（プレビュー）を作成"""
-        panel = QWidget()
-        layout = QVBoxLayout()
-        panel.setLayout(layout)
-        
-        # プレビューラベル
-        preview_label = QLabel("Preview")
-        preview_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        layout.addWidget(preview_label)
-        
-        # プレビューエリア
-        scroll_area = QScrollArea()
-        self.preview_label = QLabel()
-        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setStyleSheet("background-color: #f0f0f0;")
-        self.preview_label.setText("No preview available.\nAdd images and click 'Update Preview'.")
-        
-        scroll_area.setWidget(self.preview_label)
-        scroll_area.setWidgetResizable(True)
-        layout.addWidget(scroll_area)
-        
-        return panel
-    
-    def add_images(self):
-        """画像を追加"""
-        files, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select Images",
-            "",
-            "Image Files (*.jpg *.jpeg *.png *.tiff *.tif *.bmp)"
-        )
-        if files
+        event.accept()
